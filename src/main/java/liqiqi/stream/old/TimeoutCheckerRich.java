@@ -1,7 +1,8 @@
-package liqiqi.stream;
+package liqiqi.stream.old;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -10,7 +11,12 @@ import java.util.concurrent.TimeUnit;
 
 import liqiqi.status.StatusCollected;
 
-public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
+/**
+ * 
+ * @author tianwanpeng
+ *
+ */
+public class TimeoutCheckerRich<T> implements StatusCollected, Closeable {
 
 	@Override
 	public String getStatus() {
@@ -19,37 +25,57 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 		return sb.toString();
 	}
 
+	private static Timer timer = null;
+	final static private Object timerlock = new Object();
+
 	final private int timeunit_seconds;
 	final private int timeout_ms;
-	final private CheckerProcessor<T> checker;
+	final private boolean considerSystemTime;
+	final private CheckerProcessorRich<T> checker;
 	final private ConcurrentHashMap<TimeTuple, Long> key2times;
-	static private Timer timer = null;
-	final static private Object timerlock = new Object();
 	final private Object lock = new Object();
 
-	public TimeoutCheckerKeyOnly(int time_num, TimeUnit unit, int timeout_ms,
-			CheckerProcessor<T> checker, String checkerName) {
+	public TimeoutCheckerRich(int time_num, TimeUnit unit, int timeout_ms,
+			CheckerProcessorRich<T> checker) {
+		this(time_num, unit, timeout_ms, true, checker);
+	}
+
+	public TimeoutCheckerRich(int time_num, TimeUnit unit, int timeout_ms,
+			boolean considerSystemTime, CheckerProcessorRich<T> checker) {
 		this.timeunit_seconds = (int) unit.toSeconds(time_num);
 		this.timeout_ms = timeout_ms;
+		this.considerSystemTime = considerSystemTime;
 		this.checker = checker;
 		this.key2times = new ConcurrentHashMap<TimeTuple, Long>();
+
 		synchronized (timerlock) {
 			if (timer == null) {
-				timer = new Timer("TimeoutCheckerKeyOnly");
+				timer = new Timer();
 			}
 		}
 	}
 
+	public void update(T t) {
+		this.update(t, System.currentTimeMillis());
+	}
+
+	/**
+	 * 
+	 * @param t
+	 * @param tupleTime
+	 */
 	public void update(T t, long tupleTime) {
-		// String key = this.checker.getKey(t);
 		TimeTuple ttkey = new TimeTuple(t, tupleTime, this.timeunit_seconds);
-		long ctime = System.currentTimeMillis();
 		synchronized (lock) {
 			if (!this.key2times.containsKey(ttkey)) {
 				schedule(ttkey);
 			}
-			this.key2times.put(ttkey, ctime);
+			this.key2times.put(ttkey, System.currentTimeMillis());
 		}
+	}
+
+	public boolean containsKey(T t) {
+		return this.containsKey(t, System.currentTimeMillis());
 	}
 
 	public boolean containsKey(T t, long tupleTime) {
@@ -60,13 +86,16 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 	}
 
 	private void schedule(TimeTuple ttkey) {
-		long ctime = System.currentTimeMillis();
 		TimerTask ttask = new TupleTimerTask(ttkey);
 
-		long minnextsctime = ttkey.tupleTime + timeunit_seconds * 1000;
-		long actnextsctime = (key2times.containsKey(ttkey) ? key2times
-				.get(ttkey) : ttkey.tupleTime) + timeout_ms;
-		int timeout = (int) (Math.max(minnextsctime, actnextsctime) - ctime);
+		long nextTime = (key2times.containsKey(ttkey) ? key2times.get(ttkey)
+				: ttkey.tupleTime) + timeout_ms;
+		if (considerSystemTime) {
+			long nextSysTime = (int) (ttkey.tupleTime + timeunit_seconds * 1000);
+			nextTime = Math.max(nextSysTime, nextTime);
+		}
+		long ctime = System.currentTimeMillis();
+		int timeout = (int) (nextTime - ctime);
 		timeout = timeout < 0 ? 0 : timeout;
 		while (true) {
 			try {
@@ -75,7 +104,7 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 			} catch (final Throwable e) {
 				if (e instanceof IllegalStateException) {
 					synchronized (timerlock) {
-						timer = new Timer("TimeoutCheckerKeyOnly");
+						timer = new Timer();
 					}
 				} else {
 					break;
@@ -91,10 +120,10 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 
 	@Override
 	public void close() throws IOException {
-		// timer.cancel();
 		for (TimeTuple ttKey : key2times.keySet()) {
 			emit(ttKey);
 		}
+		timer.cancel();
 	}
 
 	private class TimeTuple {
@@ -109,15 +138,10 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 
 		@Override
 		public boolean equals(Object obj) {
-			if (obj == null
-					|| !(obj instanceof TimeoutCheckerKeyOnly.TimeTuple)) {
+			if (obj == null || !(obj instanceof TimeoutCheckerRich.TimeTuple)) {
 				return false;
 			}
 			return this.hashCode() == obj.hashCode();
-			// TimeoutChecker.TimeTuple objtuple = (TimeoutChecker.TimeTuple)
-			// obj;
-			// return (this.tupleKey.equals(objtuple.tupleKey) && this.tupleTime
-			// == objtuple.tupleTime);
 		}
 
 		@Override
@@ -152,31 +176,37 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 		}
 	}
 
-	public static interface CheckerProcessor<T> {
-		// public String getKey(T t);
+	public static interface CheckerProcessorRich<T> {
+		public String getKey(T t);
 
 		public void process(T key, long tupleTime);
 	}
 
 	public static void main(String[] args) throws IOException {
-		TimeoutCheckerKeyOnly<String> tc = new TimeoutCheckerKeyOnly<String>(5,
-				TimeUnit.SECONDS, 6000, new CheckerProcessor<String>() {
+		TimeoutCheckerRich<String> tc = new TimeoutCheckerRich<String>(10,
+				TimeUnit.SECONDS, 1000, new CheckerProcessorRich<String>() {
 
 					@Override
 					public void process(String key, long tupleTime) {
-						System.out.println(System.currentTimeMillis() / 1000
-								+ " " + key + " " + tupleTime / 1000);
+						SimpleDateFormat format = new SimpleDateFormat(
+								"yyyyMMddHHmmss");
+						System.out.println(System.currentTimeMillis() + " "
+								+ key + " " + format.format(tupleTime));
 					}
 
-				}, "TimerTest");
+					@Override
+					public String getKey(String t) {
+						return t;
+					}
+
+				});
 		while (true) {
-			tc.update(getRandString(), System.currentTimeMillis() + 4000);
-			// tc.update(getRandString(), System.currentTimeMillis()+1000);
+			tc.update(getRandString(), System.currentTimeMillis());
 			try {
 				Thread.sleep(1);
 			} catch (InterruptedException e) {
 				tc.close();
-				return;
+				break;
 			}
 		}
 	}
@@ -187,10 +217,9 @@ public class TimeoutCheckerKeyOnly<T> implements StatusCollected, Closeable {
 		int num = 1;
 		StringBuffer sb = new StringBuffer();
 		for (int i = 0; i < num; i++) {
-			sb.append((char) ('a' + r.nextInt(1)));
+			sb.append((char) ('a' + r.nextInt(2)));
 		}
 
 		return sb.toString();
 	}
-
 }

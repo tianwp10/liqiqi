@@ -1,4 +1,4 @@
-package liqiqi.stream;
+package liqiqi.stream.old;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -7,45 +7,46 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import liqiqi.status.StatusCollected;
-import liqiqi.stream.TimeoutNoticer.Noticer;
 
 /**
  * 
  * @author tianwanpeng
  *
  */
-public class TimeoutChecker implements StatusCollected, Closeable {
+public class TimeoutCheckerWithRich implements StatusCollected, Closeable {
 
 	@Override
 	public String getStatus() {
-		return this.timeoutNoticer.getStatus();
+		return this.timeoutCheker.getStatus();
 	}
 
-	final private long timeunit_ms;
-	final private boolean considerSystemTime;
+	final private TimeoutCheckerRich<String> timeoutCheker;
 
-	final private TimeoutNoticer<String> timeoutNoticer;
-
-	public TimeoutChecker(int time_num, TimeUnit unit, int timeout_ms,
+	public TimeoutCheckerWithRich(int time_num, TimeUnit unit, int timeout_ms,
 			CheckerProcessor checker) {
 		this(time_num, unit, timeout_ms, true, checker);
 	}
 
-	public TimeoutChecker(int time_num, TimeUnit unit, int timeout_ms,
+	public TimeoutCheckerWithRich(int time_num, TimeUnit unit, int timeout_ms,
 			boolean considerSystemTime, final CheckerProcessor checker) {
-		this.timeunit_ms = unit.toMillis(time_num);
-		this.considerSystemTime = considerSystemTime;
-
-		this.timeoutNoticer = new TimeoutNoticer<String>(timeout_ms,
-				new Noticer<String>() {
+		this.timeoutCheker = new TimeoutCheckerRich<String>(time_num, unit,
+				timeout_ms, considerSystemTime,
+				new TimeoutCheckerRich.CheckerProcessorRich<String>() {
 
 					@Override
-					public void notice(String key) {
-						int split = key.lastIndexOf("-");
-						checker.process(key.substring(0, split),
-								Long.valueOf(key.substring(split + 1)));
+					public String getKey(String t) {
+						return t;
+					}
+
+					@Override
+					public void process(String key, long tupleTime) {
+						checker.process(key, tupleTime);
 					}
 				});
+	}
+
+	public void update(String key) {
+		this.update(key, System.currentTimeMillis());
 	}
 
 	/**
@@ -54,21 +55,20 @@ public class TimeoutChecker implements StatusCollected, Closeable {
 	 * @param tupleTime
 	 */
 	public void update(String key, long tupleTime) {
-		long tupleUnitTime = tupleTime - tupleTime % timeunit_ms;
-		this.timeoutNoticer.update(
-				key + "-" + tupleUnitTime,
-				considerSystemTime ? Math.max(System.currentTimeMillis(),
-						tupleUnitTime + timeunit_ms) : tupleTime);
+		this.timeoutCheker.update(key, tupleTime);
 	}
 
-	public boolean containsKey(String key, long tupleTime) {
-		long tupleUnitTime = tupleTime - tupleTime % timeunit_ms;
-		return this.timeoutNoticer.containsKey(key + "-" + tupleUnitTime);
+	public boolean containsKey(String key) {
+		return this.containsKey(key, System.currentTimeMillis());
+	}
+
+	public boolean containsKey(String t, long tupleTime) {
+		return this.timeoutCheker.containsKey(t, tupleTime);
 	}
 
 	@Override
 	public void close() throws IOException {
-		this.timeoutNoticer.close();
+		this.timeoutCheker.close();
 	}
 
 	public static interface CheckerProcessor {
@@ -76,8 +76,9 @@ public class TimeoutChecker implements StatusCollected, Closeable {
 	}
 
 	public static void main(String[] args) throws IOException {
-		TimeoutChecker tc = new TimeoutChecker(10, TimeUnit.SECONDS, 1000,
+		TimeoutCheckerWithRich tc = new TimeoutCheckerWithRich(10, TimeUnit.SECONDS, 1000,
 				new CheckerProcessor() {
+
 					@Override
 					public void process(String key, long tupleTime) {
 						SimpleDateFormat format = new SimpleDateFormat(
@@ -85,6 +86,7 @@ public class TimeoutChecker implements StatusCollected, Closeable {
 						System.out.println(System.currentTimeMillis() + " "
 								+ key + " " + format.format(tupleTime));
 					}
+
 				});
 		while (true) {
 			tc.update(getRandString(), System.currentTimeMillis());
