@@ -12,6 +12,11 @@ import liqiqi.stream.TimeoutNoticer.Noticer;
 /**
  * 
  * @author tianwanpeng
+ *         TimeoutChecker的功能，对输入数据按照key+时间粒度进行超时检查，超时以后调用check函数。一个实际的使用场景是数据分拣
+ *         ，一个topic会包含很多tid，每个tid按照小时进行数 据汇集，同时，在一定的超时时间（3分钟）内，调用process函数进行处理。
+ * 
+ *         用户调用函数，需要传入参数，key， tupletime，在具体执行的时候，使用tupletime进行数据粒度计算（小时，5分钟等），
+ *         通过considerSystemTime来決定使用系統时间或者tupletime时间进行超时判断
  *
  */
 public class TimeoutChecker implements StatusCollected, Closeable {
