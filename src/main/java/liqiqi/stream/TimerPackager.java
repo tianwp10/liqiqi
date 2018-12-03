@@ -45,6 +45,11 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 
 	public TimerPackager(int timeout_ms, final int processor_parallel,
 			final Packager<T, P> packager) {
+		this(timeout_ms, true, processor_parallel, packager);
+	}
+
+	public TimerPackager(int timeout_ms, final boolean timeoutFromLastUpdate,
+			final int processor_parallel, final Packager<T, P> packager) {
 		this.key2P = new ConcurrentHashMap<String, P>();
 		this.closeCmd = new AtomicBoolean(false);
 
@@ -67,7 +72,7 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 				});
 
 		this.executorProcessor = new ExecutorProcessor<Msg>(
-				new Processor<Msg>() {
+				new ExecutorProcessor.Processor<Msg>() {
 					@Override
 					public String getStatus() {
 						return null;
@@ -86,7 +91,12 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 					public void process(Msg t, int executorid) {
 						if (t.cmd == Cmd.addTuple) {
 							String key = packager.getKey(t.t);
-							timeoutNoticer.update(key);
+							if (timeoutFromLastUpdate) {
+								timeoutNoticer.update(key);
+							} else {
+								timeoutNoticer.insertWtihoutUpdate(key);
+							}
+
 							if (!key2P.containsKey(key)) {
 								key2P.put(key, packager.newPackage(t.t));
 							}
@@ -95,7 +105,7 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 							if (full) {
 								packager.emit(key, key2P.remove(key), full);
 							}
-						} else {
+						} else if (t.cmd == Cmd.emit) {
 							packager.emit(t.key, key2P.remove(t.key), false);
 						}
 					}
