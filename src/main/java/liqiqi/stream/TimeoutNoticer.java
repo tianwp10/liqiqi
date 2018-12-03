@@ -11,8 +11,14 @@ import liqiqi.status.StatusCollected;
 /**
  * 
  * @author tianwanpeng
- *
+ * 
+ *         TimeoutNoticer 提供一个按key的超时提醒功能，使用者新建一个TimeoutNoticer对象，同时实现一个key提取函数，
+ *         TimeoutNoticer对象会根据key按照配置的超时参数进行计时，超时以后调用用户定义的notice函数.
+ *         TimeoutNoticer可以支持两种模式，按照一个key的第一个tuple时间处理和按照key的最后一个tuple的时间处理。
+ *         可以通过分别调用update或者insertWtihoutUpdate函数进行区分
+ * 
  */
+
 public class TimeoutNoticer<T> implements StatusCollected, Closeable {
 
 	@Override
