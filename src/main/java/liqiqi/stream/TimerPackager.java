@@ -9,6 +9,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import liqiqi.status.StatusCollected;
 import liqiqi.stream.ExecutorProcessor.Processor;
 
+/**
+ * 
+ * @author tianwanpeng
+ *
+ * @param <T>
+ * @param <P>
+ * 
+ *            提供定时打包处理的功能，使用者先创建一个对象，然后不断插入tuple，TimerPackager在判断条件满足的时候（pack满了，
+ *            或者超时），调用emit方法进行处理.
+ * 
+ */
+
 public class TimerPackager<T, P> implements StatusCollected, Closeable {
 
 	@Override
@@ -48,6 +60,13 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 		this(timeout_ms, true, processor_parallel, packager);
 	}
 
+	/**
+	 * 
+	 * @param timeout_ms
+	 * @param timeoutFromLastUpdate 为true的时候，从最后一次更新开始进行超时判断，为false的时候，从第一次更新开始进行判断。
+	 * @param processor_parallel 并行度设置，在多线程的时候，会按照key进行hash选择执行的executor。
+	 * @param packager
+	 */
 	public TimerPackager(int timeout_ms, final boolean timeoutFromLastUpdate,
 			final int processor_parallel, final Packager<T, P> packager) {
 		this.key2P = new ConcurrentHashMap<String, P>();
@@ -133,8 +152,19 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 	}
 
 	public static interface Packager<T, P> {
+		
+		/**
+		 * 使用tuple生成相应的key
+		 * @param t
+		 * @return
+		 */
 		public String getKey(T t);
 
+		/**
+		 * 当收到一个新key时，会调用此函数创建一个新package
+		 * @param t
+		 * @return
+		 */
 		public P newPackage(T t);
 
 		/**
@@ -148,6 +178,12 @@ public class TimerPackager<T, P> implements StatusCollected, Closeable {
 		 */
 		public boolean pack(String key, T t, P p);
 
+		/**
+		 * 当满足条件的时候调用emit，进行数据处理
+		 * @param key
+		 * @param p
+		 * @param full
+		 */
 		public void emit(String key, P p, boolean full);
 	}
 
