@@ -46,6 +46,10 @@ public class TimeoutNoticer<T> implements StatusCollected, Closeable {
 		this.update(key, System.currentTimeMillis());
 	}
 
+	public void insertWtihoutUpdate(T key) {
+		this.key2times.putIfAbsent(key, System.currentTimeMillis());
+	}
+
 	public void update(T key, long tupleTime) {
 		if (!this.key2times.containsKey(key)) {
 			synchronized (lock) {
