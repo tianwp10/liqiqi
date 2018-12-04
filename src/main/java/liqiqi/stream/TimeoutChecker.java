@@ -59,6 +59,22 @@ public class TimeoutChecker implements StatusCollected, Closeable {
 	 * @param tupleTime
 	 */
 	public void update(String key, long tupleTime) {
+		/**
+		 * 超时的原理是要在当前数据tupletime的粒度时间，以后的超时时间才能进行提醒。所以每次update的时候，
+		 * 可以把updateime设置为当前粒度的结束时间
+		 * （例如，粒度是5分钟，当前tupletime是13分，那么把updatetime设置为15分
+		 * ，这样noticer会在15分以后的超时时间进行提醒。
+		 * 
+		 * 但是仅仅这样做还是不足够的，通常数据会延迟，也就是说tupletime会比systemtime小一些，极端情况下tupletime+
+		 * timeunit_ms比systemtime还要小的时候
+		 * ，这样设置会导致noticer立即超时，达不到超时检测的效果，这个时候需要考虑systemtime。
+		 * 
+		 * 超时的真正含义是，在当前数据的时间粒度结束以后开始进行超时检查，也就是超时提醒需要设置在粒度结束时间以后的超时时间以后，
+		 * 
+		 * 另一方面，为什么不直接使用systemtime进行时间设置呢，是因为有的时候数据稀疏，例如在1分的时候来了一条记录，
+		 * 后面就再也没有新的记录了，那么这个时候就会在4分的时候超时（假设超时时间为3分钟），
+		 * 但是这和上面的原则是冲突的，我们要求在5分以后才能够超时
+		 */
 		long tupleUnitTime = tupleTime - tupleTime % timeunit_ms;
 		this.timeoutNoticer.update(
 				key + "-" + tupleUnitTime,
